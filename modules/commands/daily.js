@@ -1,90 +1,46 @@
-/**
- * Daily Command
- * Allows users to claim daily rewards
- */
-
-module.exports = {
-  config: {
-    name: 'daily',
-    aliases: ['dailyreward', 'claim'],
-    description: 'Claim your daily reward',
-    usage: '{prefix}daily',
-    credit: '𝐏𝐫𝐢𝐲𝐚𝐧𝐬𝐡 𝐑𝐚𝐣𝐩𝐮𝐭',
-    hasPrefix: true,
-    permission: 'PUBLIC',
-    cooldown: 5,
-    category: 'ECONOMY'
-  },
-  
-  /**
-   * Command execution
-   * @param {Object} options - Options object
-   * @param {Object} options.api - Facebook API instance
-   * @param {Object} options.message - Message object
-   * @param {Array<string>} options.args - Command arguments
-   */
-  run: async function({ api, message, args }) {
-    const { threadID, messageID, senderID } = message;
-    
-    try {
-      // Get user currency data
-      let currency = await global.Currency.findOne({ userID: senderID });
-      
-      // Create if not exists
-      if (!currency) {
-        currency = await global.Currency.create({ userID: senderID });
-      }
-      
-      // Check if daily reward was already claimed
-      if (currency.daily) {
-        const lastClaim = new Date(currency.daily);
-        const now = new Date();
-        
-        // Reset daily at midnight
-        const tomorrow = new Date(lastClaim);
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        tomorrow.setHours(0, 0, 0, 0);
-        
-        if (now < tomorrow) {
-          // Calculate time until reset
-          const timeLeft = tomorrow - now;
-          const hours = Math.floor(timeLeft / (1000 * 60 * 60));
-          const minutes = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
-          
-          return global.api.sendMessage(
-            `❌ You've already claimed your daily reward today. You can claim again in ${hours}h ${minutes}m.`,
-            threadID,
-            messageID
-          );
-        }
-      }
-      
-      // Calculate reward based on level (base 100 + 50 per level)
-      const reward = 100 + (currency.level * 50);
-      
-      // Update currency
-      currency.money += reward;
-      currency.daily = new Date();
-      await currency.save();
-      
-      // Calculate streak (future implementation)
-      
-      // Send success message
-      return global.api.sendMessage(
-        `✅ Daily reward claimed!\n` +
-        `💰 You received ${reward} coins\n` +
-        `💵 Your balance: ${currency.money} coins`,
-        threadID,
-        messageID
-      );
-      
-    } catch (error) {
-      global.logger.error('Error in daily command:', error.message);
-      return global.api.sendMessage(
-        '❌ An error occurred while processing your daily reward. Please try again later.',
-        threadID,
-        messageID
-      );
+module.exports.config = {
+	name: "daily",
+	version: "1.0.2",
+	hasPermssion: 0,
+	credits: "𝐏𝐫𝐢𝐲𝐚𝐧𝐬𝐡 𝐑𝐚𝐣𝐩𝐮𝐭",
+	description: "Get 19011310000 coins every day!",
+	commandCategory: "economy",
+    cooldowns: 5,
+    envConfig: {
+        cooldownTime: 43200000,
+        rewardCoin: 19011310000
     }
-  }
 };
+
+module.exports.languages = {
+    
+    "en": {
+        "cooldown": "You received today's rewards, please come back after: %1 hours %2 minutes %3 seconds.",
+        "rewarded": "You received %1$, to continue to receive, please try again after 12 hours"
+    }
+}
+
+module.exports.run = async ({ event, api, Currencies, getText }) => {
+    const { daily } = global.configModule,
+        cooldownTime = daily.cooldownTime,
+        rewardCoin = daily.rewardCoin;
+
+    var { senderID, threadID, messageID } = event;
+
+    let data = (await Currencies.getData(senderID)).data || {};
+    if (typeof data !== "undefined" && cooldownTime - (Date.now() - (data.dailyCoolDown || 0)) > 0) {
+        var time = cooldownTime - (Date.now() - data.dailyCoolDown),
+            seconds = Math.floor( (time/1000) % 60 ),
+            minutes = Math.floor( (time/1000/60) % 60 ),
+            hours = Math.floor( (time/(1000*60*60)) % 24 );
+
+		return api.sendMessage(getText("cooldown", hours, minutes, (seconds < 10 ? "0" : "") + seconds), threadID, messageID);
+    }
+
+    else return api.sendMessage(getText("rewarded", rewardCoin), threadID, async () => {
+        await Currencies.increaseMoney(senderID, rewardCoin);
+        data.dailyCoolDown = Date.now();
+        await Currencies.setData(senderID, { data });
+        return;
+    }, messageID);
+}
